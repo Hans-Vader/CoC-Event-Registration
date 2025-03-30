@@ -1767,22 +1767,23 @@ class EventActionView(BaseView):
                 guild=interaction.guild
             )
         elif is_clan_rep:
-            # Clan-Reps können nur ihr eigenes Team bearbeiten
+            # Clan-Reps können ihr eigenes Team bearbeiten oder ein neues Team anmelden
             team_name = user_team_assignments.get(user_id)
             
             if not team_name:
-                await interaction.response.send_message(
-                    "Du bist keinem Team zugewiesen.",
-                    ephemeral=True
-                )
+                # Wenn kein Team zugewiesen ist, öffne das Formular für die Teamerstellung
+                modal = TeamRegistrationModal(interaction.user)
+                await interaction.response.send_modal(modal)
+                
+                # Log für Teamregistrierungsprozess
                 await send_to_log_channel(
-                    f"ℹ️ Team-Bearbeitungsversuch abgelehnt: Benutzer {interaction.user.name} ({interaction.user.id}) ist keinem Team zugewiesen",
+                    f"📋 Teamregistrierungsprozess gestartet: {interaction.user.name} ({interaction.user.id}) meldet ein neues Team an",
                     level="INFO",
                     guild=interaction.guild
                 )
                 return
             
-            # Prüfe, ob das Team angemeldet ist oder auf der Warteliste steht
+            # Team ist zugewiesen, prüfe ob es angemeldet ist oder auf der Warteliste steht
             team_size = None
             is_on_waitlist = False
             
@@ -2516,9 +2517,18 @@ async def update_team_size(interaction, team_name, new_size, is_admin=False, rea
     
     # Prüfe Berechtigungen für Nicht-Admins
     if not is_admin:
-        # Prüfe, ob der Nutzer zum Team gehört (case-insensitive)
+        # Prüfe, ob der Nutzer die CLAN_REP_ROLLE hat
+        is_clan_rep = has_role(interaction.user, CLAN_REP_ROLE)
+        if not is_clan_rep:
+            await interaction.response.send_message(
+                f"Nur Mitglieder mit der Rolle '{CLAN_REP_ROLE}' können Teams bearbeiten.",
+                ephemeral=True
+            )
+            return False
+            
+        # Prüfe, ob der Nutzer bereits einem Team zugewiesen ist
         user_team = user_team_assignments.get(user_id, "").lower()
-        if not (has_role(interaction.user, CLAN_REP_ROLE) and user_team == team_name):
+        if user_team and user_team != team_name:
             await interaction.response.send_message(
                 "Du kannst nur dein eigenes Team bearbeiten.",
                 ephemeral=True
@@ -2556,12 +2566,14 @@ async def update_team_size(interaction, team_name, new_size, is_admin=False, rea
     
     # Prüfe, ob das Team existiert
     if current_total_size == 0 and new_size > 0:
-        # Neues Team anlegen - sollte nicht über diese Funktion passieren
-        await interaction.response.send_message(
-            f"Team {team_name} existiert nicht. Bitte nutze die Team-Anmeldung, um ein neues Team zu erstellen.",
-            ephemeral=True
-        )
-        return False
+        # Neues Team anlegen
+        # Weise den aktuellen Benutzer dem Team zu
+        user_id = str(interaction.user.id)
+        user_team_assignments[user_id] = team_name
+        
+        # Füge das Team zum Event oder zur Warteliste hinzu (wird später erledigt)
+        logger.info(f"Neues Team '{team_name}' wird mit Größe {new_size} erstellt")
+        # Fahre mit der normalen Logik fort
     
     # Wenn Teamgröße 0 ist, Team automatisch abmelden
     if new_size == 0:
