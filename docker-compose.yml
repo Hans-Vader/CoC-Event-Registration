@@ -1,0 +1,10 @@
+services:
+  event-bot:
+    build: .
+    container_name: event-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Persists the event data
+      - ./event_data.pkl:/app/event_data.pkl
